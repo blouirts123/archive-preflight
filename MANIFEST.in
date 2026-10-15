@@ -1,1 +1,8 @@
 include CHANGELOG.md CONTRIBUTING.md SECURITY.md
+include .pre-commit-hooks.yaml
+graft docs
+graft examples
+graft schemas
+graft tools
+graft tests/fixtures
+global-exclude *.py[cod]

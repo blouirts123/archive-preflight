@@ -1,0 +1,73 @@
+{
+  "schema_version": 1,
+  "description": "Small synthetic archives created by a real archive writer.",
+  "producer": {
+    "name": "bsdtar",
+    "version": "3.8.9",
+    "libarchive_version": "3.8.9",
+    "zlib_version": "1.2.13.1-motley",
+    "liblzma_version": "5.8.3"
+  },
+  "normalization": {
+    "member_paths": "relative POSIX paths",
+    "uid": 0,
+    "gid": 0,
+    "tar_uname": "archive",
+    "tar_gname": "archive",
+    "file_mode_octal": "0666",
+    "mtime_utc": "2000-01-01T00:00:00Z"
+  },
+  "archives": [
+    {
+      "path": "sample.tar.gz",
+      "format": "tar",
+      "compression": "gzip",
+      "size": 198,
+      "sha256": "5a0ca37e853237b5c264c1c75f12ee2b7796a3511035c1659def77cc7b95d3f7",
+      "members": [
+        {
+          "name": "README.txt",
+          "size": 50
+        },
+        {
+          "name": "folder/notes.txt",
+          "size": 25
+        }
+      ]
+    },
+    {
+      "path": "sample.tar.xz",
+      "format": "tar",
+      "compression": "xz",
+      "size": 240,
+      "sha256": "b24fe59ca82b239f4a3766057aeafc823044d62045c462912caafd02692d9326",
+      "members": [
+        {
+          "name": "README.txt",
+          "size": 50
+        },
+        {
+          "name": "folder/notes.txt",
+          "size": 25
+        }
+      ]
+    },
+    {
+      "path": "sample.zip",
+      "format": "zip",
+      "compression": "deflate",
+      "size": 448,
+      "sha256": "82d43ec2f23ca4698c3916f5eb28f202291fad98b5030c01f14a8575c856dea6",
+      "members": [
+        {
+          "name": "README.txt",
+          "size": 50
+        },
+        {
+          "name": "folder/café.txt",
+          "size": 26
+        }
+      ]
+    }
+  ]
+}

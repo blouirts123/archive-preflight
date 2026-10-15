@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Archive Preflight single-archive error v1",
+  "description": "The exact single-archive error object retained by the v1 JSON interface.",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "error": {
+      "type": "string"
+    }
+  },
+  "required": ["schema_version", "error"],
+  "additionalProperties": false
+}

@@ -1,0 +1,7 @@
+- id: archive-preflight
+  name: archive-preflight
+  description: Check ZIP and TAR release archives for unsafe member paths.
+  entry: archive-preflight
+  language: python
+  types: [file]
+  files: (?i)\.(?:zip|whl|tar(?:\.gz|\.bz2|\.xz|\.zst)?|tgz|tbz2?|txz|tzst)$

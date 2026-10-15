@@ -73,7 +73,9 @@ class ArchiveError(Exception):
 
 
 _DRIVE_PREFIX = re.compile(r"^[A-Za-z]:")
-_RESERVED_WINDOWS_NAME = re.compile(r"^(?:CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])$", re.I)
+_RESERVED_WINDOWS_NAME = re.compile(
+    r"^(?:CON|PRN|AUX|NUL|(?:COM|LPT)[1-9\u00b9\u00b2\u00b3])$", re.IGNORECASE
+)
 _WINDOWS_FORBIDDEN = frozenset('<>:"|?*')
 _TAR_SCAN_EXTRA = 16 * 1024 * 1024
 _TAR_BLOCK_SIZE = 512
@@ -384,12 +386,49 @@ def _single_path_findings(name: str, *, is_directory: bool) -> list[Finding]:
     return tracker.findings
 
 
+def _validate_zip_directory_lengths(
+    archive: zipfile.ZipFile, infos: list[zipfile.ZipInfo]
+) -> None:
+    """Reject variable fields silently truncated by the stdlib ZIP parser.
+
+    ZipFile provides its central-directory offset and underlying file on the
+    supported Python versions. Preserve its position and read only metadata.
+    This does not check local headers or validate member contents.
+    """
+
+    stream = archive.fp
+    if stream is None:
+        raise ArchiveError("ZIP archive was closed before metadata validation")
+    position = stream.tell()
+    try:
+        stream.seek(archive.start_dir)
+        for info in infos:
+            header = stream.read(46)
+            if len(header) != 46 or header[:4] != b"PK\x01\x02":
+                raise ArchiveError(
+                    "ZIP central directory has a truncated member header"
+                )
+            name_length, extra_length, comment_length = struct.unpack_from(
+                "<HHH", header, 28
+            )
+            if len(info.extra) != extra_length or len(info.comment) != comment_length:
+                raise ArchiveError(
+                    "ZIP central directory has truncated variable fields"
+                )
+            if len(stream.read(name_length)) != name_length:
+                raise ArchiveError("ZIP central directory has a truncated member name")
+            stream.seek(extra_length + comment_length, os.SEEK_CUR)
+    finally:
+        stream.seek(position)
+
+
 def _zip_report(
     path: os.PathLike[str] | str, max_members: int, max_total_size: int
 ) -> Report:
     try:
         with zipfile.ZipFile(path, mode="r") as archive:
             infos = archive.infolist()
+            _validate_zip_directory_lengths(archive, infos)
             tracker = _PathTracker()
             findings: list[Finding] = []
             member_count = 0
@@ -563,6 +602,20 @@ def _tar_has_nonzero_trailing_data(archive: tarfile.TarFile) -> bool:
             return True
 
 
+class _ValidatedTarInfo(tarfile.TarInfo):
+    """Validate PAX sizes before tarfile can silently repair or drop a member."""
+
+    def _apply_pax_info(self, pax_headers, encoding, errors):
+        if "size" in pax_headers:
+            try:
+                size = int(pax_headers["size"])
+            except ValueError as exc:
+                raise ArchiveError("TAR member has an invalid PAX size") from exc
+            if size < 0:
+                raise ArchiveError("TAR member has a negative PAX size")
+        return super()._apply_pax_info(pax_headers, encoding, errors)
+
+
 def _tar_report(
     path: os.PathLike[str] | str, max_members: int, max_total_size: int
 ) -> Report:
@@ -572,7 +625,9 @@ def _tar_report(
             bounded = _BoundedReader(
                 decompressed, _tar_scan_budget(max_members, max_total_size)
             )
-            archive = tarfile.open(fileobj=bounded, mode="r|", bufsize=10 * 1024)
+            archive = tarfile.open(
+                fileobj=bounded, mode="r|", bufsize=10 * 1024, tarinfo=_ValidatedTarInfo
+            )
             stack.callback(archive.close)
 
             tracker = _PathTracker()

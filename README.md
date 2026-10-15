@@ -8,7 +8,7 @@ two names differing only in case, or a file where another member needs a directo
 Archive Preflight catches these mistakes in release pipelines and returns JSON
 that other tools can consume. It never extracts files.
 
-## Install from a checkout
+## Install
 
 ```sh
 python -m pip install .
@@ -16,12 +16,73 @@ archive-preflight release.zip
 archive-preflight release.tar.gz --json
 ```
 
-This initial release is installed from source; registry publication is separate.
+Install from source; registry publication is separate.
 Without a local checkout:
 
 ```sh
-python -m pip install "git+https://github.com/blouirts123/archive-preflight.git@v0.1.0"
+python -m pip install "git+https://github.com/blouirts123/archive-preflight.git@v0.2.0"
 ```
+
+## Check multiple archives
+
+The command accepts one or more archive paths. To inspect several archives in
+one invocation, pass each path as an argument:
+
+```sh
+archive-preflight dist/one.zip dist/two.tar.gz
+archive-preflight dist/one.zip dist/two.tar.gz --json
+archive-preflight --batch dist/one.zip --json
+```
+
+With one path, `--json` and no `--batch` keeps the v0.1 JSON report format,
+including its `{"schema_version": 1, "error": "..."}` input-error shape.
+Multiple paths with `--json` use the batch envelope; `--batch` selects batch
+output even for one path. Batch results stay in input order, including repeated
+paths. Each result contains the input path and either a report or an error, and
+one archive's error does not prevent later archives from being checked. The
+batch `ok` field is true only when every input has a complete report with no
+findings; any input error, finding, or incomplete report makes it false.
+
+Example batch response (one successful archive followed by an input error):
+
+```json
+{
+  "schema_version": 1,
+  "kind": "batch",
+  "ok": false,
+  "results": [
+    {
+      "archive": "literal-input.zip",
+      "report": {
+        "schema_version": 1,
+        "format": "zip",
+        "member_count": 1,
+        "total_size": 1,
+        "complete": true,
+        "ok": true,
+        "findings": []
+      }
+    },
+    {
+      "archive": "literal-bad.zip",
+      "error": "message"
+    }
+  ]
+}
+```
+
+The command does not expand wildcard patterns. If your shell expands a pattern,
+the resulting paths are passed as separate inputs in the order supplied by the
+shell; quote a pattern when it should be passed as a literal path. Inspection
+limits apply separately to each archive. Batch exit status is `2` if any input
+has an archive error, otherwise `1` if any report has findings or is incomplete,
+otherwise `0`. Invalid argument counts, options, or limits also exit `2`; an
+interrupt exits `130` and may leave partial JSON unwritten. In batch plain-text
+mode, each input is identified with a safely escaped path, reports go to
+standard output, and per-file errors go to standard error. `--batch` selects
+these labels even for one path; one-input plain-text output remains compatible
+with the earlier CLI. Text output escapes terminal-control characters in paths,
+finding details, and errors.
 
 ## Checks
 
@@ -54,14 +115,23 @@ end marker is flagged rather than treated as an inspected second archive.
 python -m archive_preflight dist/project.zip --json --max-members 10000 --max-total-size 1073741824
 ```
 
-Exit statuses: `0` no findings; `1` findings or an inspection limit;
-`2` input/usage/read error; `130` interrupted. Limits must be positive integers.
-JSON reports use `schema_version: 1`; findings contain `code`, `member`, and
-`message`. `complete: false` means inspection stopped early: the reported totals
-and findings describe only the inspected prefix. Do not interpret an incomplete
-scan as a pass. Error JSON contains `schema_version` and `error` instead.
+For a single input, exit statuses are `0` no findings; `1` findings or an
+inspection limit; `2` input/usage error, including an unreadable or unsupported
+archive; and `130` interrupted. Limits must be positive integers. Single-input
+JSON reports use `schema_version: 1`;
+findings contain `code`, `member`, and `message`. `complete: false` means
+inspection stopped early: the reported totals and findings describe only the
+inspected prefix. Do not interpret an incomplete scan as a pass. Error JSON
+contains `schema_version` and `error` instead. See the
+[single-report schema](schemas/report-v1.schema.json) and
+[batch schema](schemas/batch-v1.schema.json).
+
+For a pre-commit hook example and supported archive filename suffixes, see
+[Pre-commit integration](docs/pre-commit.md).
 
 ## Python API
+
+For limit behavior and exception handling, see the [Python API guide](docs/python-api.md).
 
 ```python
 from archive_preflight import inspect_archive
@@ -91,6 +161,8 @@ that allowance is a read error (exit `2`). Standard-library zstd TAR support
 requires Python 3.14 or newer. Run untrusted inputs with operating
 system limits on CPU, memory, and time. Use a safe extraction policy separately;
 see the [Python tarfile documentation](https://docs.python.org/3/library/tarfile.html#extraction-filters).
+The optional benchmark tool and its measurement limits are described in
+[Performance notes](docs/performance.md).
 
 ## Development
 
@@ -104,3 +176,6 @@ supported Python versions on Linux and Windows. See [CONTRIBUTING.md](CONTRIBUTI
 for focused changes and [SECURITY.md](SECURITY.md) for reporting concerns.
 
 Licensed under MIT.
+
+The JSON schemas are included in this repository and the source distribution.
+The wheel contains the runtime package; it does not install the schema files.
