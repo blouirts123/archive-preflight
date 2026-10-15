@@ -1,0 +1,39 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "archive-preflight"
+version = "0.1.0"
+description = "Check ZIP and TAR release archives for unsafe paths and portability conflicts"
+readme = "README.md"
+requires-python = ">=3.10"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{name = "Archive Preflight contributors"}]
+dependencies = []
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Environment :: Console",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python :: 3",
+  "Topic :: Software Development :: Quality Assurance",
+]
+
+[project.scripts]
+archive-preflight = "archive_preflight.cli:main"
+
+[project.urls]
+Repository = "https://github.com/blouirts123/archive-preflight"
+Issues = "https://github.com/blouirts123/archive-preflight/issues"
+Changelog = "https://github.com/blouirts123/archive-preflight/blob/main/CHANGELOG.md"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+target-version = "py310"
+line-length = 88
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F", "I", "UP", "B"]
