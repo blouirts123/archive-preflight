@@ -6,10 +6,12 @@ import argparse
 import json
 import sys
 from collections.abc import Sequence
+from pathlib import Path
 from typing import TextIO
 
 from . import __version__
 from .core import ArchiveError, Report, inspect_archive
+from .sarif import build_sarif
 
 
 def positive_int(value: str) -> int:
@@ -95,7 +97,16 @@ def _build_parser() -> argparse.ArgumentParser:
         "archives", nargs="+", metavar="ARCHIVE", help="local ZIP or TAR archive"
     )
     parser.add_argument("--version", action="version", version=__version__)
-    parser.add_argument("--json", action="store_true", help="emit a JSON report")
+    output_group = parser.add_mutually_exclusive_group()
+    output_group.add_argument("--json", action="store_true", help="emit a JSON report")
+    output_group.add_argument(
+        "--sarif", action="store_true", help="emit a SARIF 2.1.0 report"
+    )
+    parser.add_argument(
+        "--sarif-root",
+        metavar="PATH",
+        help="root used to make SARIF artifact URIs repository-relative",
+    )
     parser.add_argument(
         "--batch",
         action="store_true",
@@ -113,11 +124,14 @@ def _build_parser() -> argparse.ArgumentParser:
 
 
 def _run(argv: Sequence[str] | None = None) -> int:
-    args = _build_parser().parse_args(argv)
+    parser = _build_parser()
+    args = parser.parse_args(argv)
+    if args.sarif_root is not None and not args.sarif:
+        parser.error("--sarif-root requires --sarif")
     batch_mode = args.batch or len(args.archives) > 1
 
     # Keep results in input order, including repetitions. Deferring output until
-    # scanning finishes also means KeyboardInterrupt never emits partial JSON.
+    # scanning finishes prevents scan-time interrupts from emitting partial JSON.
     results: list[tuple[str, Report | None, str | None]] = []
     for archive_path in args.archives:
         try:
@@ -134,6 +148,11 @@ def _run(argv: Sequence[str] | None = None) -> int:
     has_error = any(error is not None for _, _, error in results)
     has_failure = any(report is not None and not report.ok for _, report, _ in results)
     status = 2 if has_error else 1 if has_failure else 0
+
+    if args.sarif:
+        root = Path(args.sarif_root) if args.sarif_root is not None else None
+        print(json.dumps(build_sarif(results, root=root), ensure_ascii=True))
+        return status
 
     if args.json and batch_mode:
         batch_results: list[dict[str, object]] = []

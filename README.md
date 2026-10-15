@@ -84,6 +84,28 @@ these labels even for one path; one-input plain-text output remains compatible
 with the earlier CLI. Text output escapes terminal-control characters in paths,
 finding details, and errors.
 
+## SARIF output (pending release)
+
+The development branch adds SARIF 2.1.0 output for CI consumers:
+
+```sh
+archive-preflight dist/one.zip dist/two.tar.gz --sarif
+archive-preflight dist/one.zip --sarif --sarif-root .
+```
+
+`--sarif` and `--json` are mutually exclusive. `--sarif-root` is valid only
+with `--sarif`; it defaults to the current working directory. `--batch` may
+also be supplied, but it does not change SARIF output. The command emits one
+SARIF document for clean or failing archive scans; invalid CLI arguments exit
+`2` without a SARIF document. Portability findings are warnings, archive errors
+are error-level tool execution notifications. Exit status is `0` for clean
+inputs, `1` for findings or incomplete reports, `2` for input errors, and `130`
+if interrupted. Archive locations are repository-relative to the selected root
+when the input path is lexically within it; outside-root inputs have no physical
+location.
+SARIF output does not turn this metadata lint into a security analysis. See the
+[SARIF guide](docs/sarif.md) for the output details.
+
 ## Checks
 
 | Code | What it reports |
@@ -128,6 +150,34 @@ contains `schema_version` and `error` instead. See the
 
 For a pre-commit hook example and supported archive filename suffixes, see
 [Pre-commit integration](docs/pre-commit.md).
+
+## GitHub Actions (pending release)
+
+The repository adds a composite action that accepts newline-separated,
+repository-relative archive glob patterns and emits text, JSON, or SARIF. After
+checking out the repository and creating the archives, its local action can be
+used like this:
+
+This example is for workflows in the Archive Preflight repository: `uses: ./`
+selects the checked-out repository's root action. In another repository, `./`
+refers to that repository; use a maintainer-selected published release
+reference only once one is available.
+
+```yaml
+- uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+- uses: ./
+  with:
+    archives: |
+      dist/*.zip
+      dist/*.tar.gz
+    report-format: sarif
+    report-path: archive-preflight.sarif
+```
+
+The action writes the report to standard output unless `report-path` is set; it
+does not upload SARIF to GitHub code scanning. See the
+[GitHub Actions guide](docs/github-actions.md) for input validation, limits,
+and report-path behavior.
 
 ## Python API
 

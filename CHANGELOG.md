@@ -3,6 +3,11 @@
 ## Unreleased
 
 - Extend the interoperability corpus and generator with GNU tar 1.35 fixtures.
+- Add SARIF 2.1.0 CLI output, representing portability findings as warnings and
+  archive errors as execution notifications; see the [SARIF guide](docs/sarif.md).
+- Add a composite GitHub Action for repository-relative archive patterns with
+  text, JSON, or SARIF reports. It does not upload reports to code scanning;
+  see the [GitHub Actions guide](docs/github-actions.md).
 
 ## 0.2.0
 

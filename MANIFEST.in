@@ -1,5 +1,6 @@
 include CHANGELOG.md CONTRIBUTING.md SECURITY.md
 include .pre-commit-hooks.yaml
+include action.yml
 graft docs
 graft examples
 graft schemas
