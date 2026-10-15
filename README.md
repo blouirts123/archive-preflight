@@ -78,6 +78,8 @@ This is a metadata and portability lint, not a malware detector, integrity check
 extraction sandbox, or proof that an archive is safe. It does not recursively
 inspect nested archives, check file contents or ZIP CRCs, or predict every target
 filesystem behavior. It rejects all links instead of resolving link targets.
+ZIP checks use central-directory metadata; disagreements with local ZIP headers
+are not validated.
 No network calls or telemetry are performed.
 
 ZIP metadata is read without decompressing member payloads. Python's ZIP parser
