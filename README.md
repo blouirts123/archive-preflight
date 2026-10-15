@@ -215,6 +215,9 @@ python -m pip install -e .
 python -m unittest discover -s tests -v
 ```
 
+The optional source-distribution comparison helper and manual two-build audit
+are described in the [reproducible-build audit guide](docs/reproducible-builds.md).
+
 Tests build synthetic ZIP/TAR fixtures in temporary directories. CI tests
 supported Python versions on Linux and Windows. See [CONTRIBUTING.md](CONTRIBUTING.md)
 for focused changes and [SECURITY.md](SECURITY.md) for reporting concerns.

@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Add an optional source-distribution normalizer and a manual two-build release
+  audit workflow. Raw and normalized outputs are reported separately; see the
+  [reproducible-build audit guide](docs/reproducible-builds.md).
+
 ## 0.3.0
 
 - Extend the interoperability corpus and generator with GNU tar 1.35 fixtures.

@@ -1,0 +1,227 @@
+name: Reproducible release audit
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      PYTHONHASHSEED: "0"
+      TZ: UTC
+      LC_ALL: C.UTF-8
+    steps:
+      - name: Check out audit source A
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.sha }}
+          path: checkout-a
+          fetch-depth: 1
+          clean: true
+          persist-credentials: false
+
+      - name: Check out audit source B
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.sha }}
+          path: checkout-b
+          fetch-depth: 1
+          clean: true
+          persist-credentials: false
+
+      - name: Set up pinned Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.14.3'
+
+      - name: Verify checkouts and record commit epoch
+        id: epoch
+        shell: bash
+        env:
+          AUDIT_COMMIT_SHA: ${{ github.sha }}
+        run: |
+          if [[ ! "$AUDIT_COMMIT_SHA" =~ ^[0-9a-f]{40,64}$ ]]; then
+            echo "The workflow commit SHA is invalid." >&2
+            exit 1
+          fi
+
+          source_a="$(git -C checkout-a rev-parse HEAD)"
+          source_b="$(git -C checkout-b rev-parse HEAD)"
+          if [[ "$source_a" != "$AUDIT_COMMIT_SHA" || "$source_b" != "$AUDIT_COMMIT_SHA" ]]; then
+            echo "The two checkouts do not match the workflow commit." >&2
+            exit 1
+          fi
+
+          epoch="$(git -C checkout-a show -s --format=%ct "$AUDIT_COMMIT_SHA")"
+          if [[ ! "$epoch" =~ ^[0-9]+$ ]]; then
+            echo "The workflow commit epoch is invalid." >&2
+            exit 1
+          fi
+
+          printf 'source_date_epoch=%s\n' "$epoch" >> "$GITHUB_OUTPUT"
+          printf 'SOURCE_DATE_EPOCH=%s\n' "$epoch" >> "$GITHUB_ENV"
+          printf 'Auditing commit %s with SOURCE_DATE_EPOCH=%s\n' "$AUDIT_COMMIT_SHA" "$epoch"
+
+      - name: Create separate build environments and output directories
+        shell: bash
+        run: |
+          python -m venv "$RUNNER_TEMP/archive-preflight-audit-a"
+          python -m venv "$RUNNER_TEMP/archive-preflight-audit-b"
+          mkdir -p audit-raw-a audit-raw-b audit-normalized-a audit-normalized-b
+
+          "$RUNNER_TEMP/archive-preflight-audit-a/bin/python" -m pip install --disable-pip-version-check --no-input \
+            'build==1.6.1' 'setuptools==78.1.0' 'wheel==0.47.0'
+          "$RUNNER_TEMP/archive-preflight-audit-b/bin/python" -m pip install --disable-pip-version-check --no-input \
+            'build==1.6.1' 'setuptools==78.1.0' 'wheel==0.47.0'
+
+          "$RUNNER_TEMP/archive-preflight-audit-a/bin/python" -c 'import build, setuptools, wheel; print("build", build.__version__); print("setuptools", setuptools.__version__); print("wheel", wheel.__version__)'
+          "$RUNNER_TEMP/archive-preflight-audit-b/bin/python" -c 'import build, setuptools, wheel; print("build", build.__version__); print("setuptools", setuptools.__version__); print("wheel", wheel.__version__)'
+
+      - name: Build source A
+        shell: bash
+        working-directory: checkout-a
+        env:
+          SOURCE_DATE_EPOCH: ${{ steps.epoch.outputs.source_date_epoch }}
+        run: |
+          "$RUNNER_TEMP/archive-preflight-audit-a/bin/python" -m build --no-isolation --sdist --wheel \
+            --outdir "$GITHUB_WORKSPACE/audit-raw-a"
+
+      - name: Build source B
+        shell: bash
+        working-directory: checkout-b
+        env:
+          SOURCE_DATE_EPOCH: ${{ steps.epoch.outputs.source_date_epoch }}
+        run: |
+          "$RUNNER_TEMP/archive-preflight-audit-b/bin/python" -m build --no-isolation --sdist --wheel \
+            --outdir "$GITHUB_WORKSPACE/audit-raw-b"
+
+      - name: Normalize each source distribution
+        shell: bash
+        env:
+          SOURCE_DATE_EPOCH: ${{ steps.epoch.outputs.source_date_epoch }}
+        run: |
+          python - <<'PY'
+          import os
+          import hashlib
+          import json
+          import re
+          import subprocess
+          from pathlib import Path
+
+          workspace = Path(os.environ["GITHUB_WORKSPACE"])
+          normalizer = workspace / "checkout-a" / "tools" / "normalize_sdist.py"
+          epoch = os.environ["SOURCE_DATE_EPOCH"]
+
+          for label in ("a", "b"):
+              raw_dir = workspace / f"audit-raw-{label}"
+              normalized_dir = workspace / f"audit-normalized-{label}"
+              candidates = sorted(raw_dir.glob("*.tar.gz"))
+              if len(candidates) != 1:
+                  raise SystemExit(f"Expected one raw sdist in {raw_dir.name}; found {len(candidates)}")
+              output = normalized_dir / candidates[0].name
+              completed = subprocess.run(
+                  [
+                      "python",
+                      str(normalizer),
+                      "--input",
+                      str(candidates[0]),
+                      "--output",
+                      str(output),
+                      "--source-date-epoch",
+                      epoch,
+                  ],
+                  capture_output=True,
+                  text=True,
+                  check=True,
+              )
+              try:
+                  result = json.loads(completed.stdout)
+              except json.JSONDecodeError as exc:
+                  raise SystemExit(f"Normalizer returned invalid JSON for source {label}.") from exc
+              if not isinstance(result, dict) or set(result) != {"output", "sha256"}:
+                  raise SystemExit(f"Normalizer returned an unexpected result for source {label}.")
+              if result["output"] != output.name:
+                  raise SystemExit(f"Normalizer reported a non-basename output for source {label}.")
+              if not isinstance(result["sha256"], str) or not re.fullmatch(
+                  r"[0-9a-f]{64}", result["sha256"]
+              ):
+                  raise SystemExit(f"Normalizer returned an invalid SHA-256 for source {label}.")
+              actual_digest = hashlib.sha256(output.read_bytes()).hexdigest()
+              if result["sha256"] != actual_digest:
+                  raise SystemExit(f"Normalizer SHA-256 did not match its output for source {label}.")
+              print(f"Normalizer JSON result verified for source {label}: {output.name}")
+          PY
+
+      - name: Compare wheel and normalized sdist outputs
+        shell: bash
+        run: |
+          python - <<'PY'
+          import hashlib
+          import tarfile
+          from pathlib import Path
+
+          root = Path.cwd()
+
+          def one_file(directory: str, pattern: str) -> Path:
+              matches = sorted((root / directory).glob(pattern))
+              if len(matches) != 1:
+                  raise SystemExit(
+                      f"Expected one {pattern} in {directory}; found {len(matches)}"
+                  )
+              return matches[0]
+
+          def digest(path: Path) -> str:
+              return hashlib.sha256(path.read_bytes()).hexdigest()
+
+          wheel_a = one_file("audit-raw-a", "*.whl")
+          wheel_b = one_file("audit-raw-b", "*.whl")
+          if wheel_a.name != wheel_b.name or wheel_a.read_bytes() != wheel_b.read_bytes():
+              raise SystemExit("The raw wheel builds differ.")
+
+          raw_sdist_a = one_file("audit-raw-a", "*.tar.gz")
+          raw_sdist_b = one_file("audit-raw-b", "*.tar.gz")
+          normalized_a = one_file("audit-normalized-a", "*.tar.gz")
+          normalized_b = one_file("audit-normalized-b", "*.tar.gz")
+          if not (
+              raw_sdist_a.name == raw_sdist_b.name == normalized_a.name == normalized_b.name
+          ):
+              raise SystemExit("The source distribution filenames differ.")
+          if normalized_a.read_bytes() != normalized_b.read_bytes():
+              raise SystemExit("The normalized source distribution bytes differ.")
+
+          def member_payloads(path: Path) -> dict[str, tuple[str, int, bytes | None]]:
+              result: dict[str, tuple[str, int, bytes | None]] = {}
+              with tarfile.open(path, "r:gz") as archive:
+                  for member in archive.getmembers():
+                      if member.name in result:
+                          raise SystemExit(f"Duplicate normalized member {member.name!r}.")
+                      if member.isfile():
+                          stream = archive.extractfile(member)
+                          if stream is None:
+                              raise SystemExit(f"Could not read member {member.name!r}.")
+                          result[member.name] = ("file", member.mode, stream.read())
+                      elif member.isdir():
+                          result[member.name] = ("directory", member.mode, None)
+                      else:
+                          raise SystemExit(
+                              f"Unexpected member type in normalized sdist: {member.name!r}"
+                          )
+              return result
+
+          payloads_a = member_payloads(normalized_a)
+          payloads_b = member_payloads(normalized_b)
+          if payloads_a != payloads_b:
+              raise SystemExit("Normalized source distribution member payloads or modes differ.")
+
+          print(f"wheel {wheel_a.name} sha256={digest(wheel_a)}")
+          print(f"raw-sdist-a {raw_sdist_a.name} sha256={digest(raw_sdist_a)}")
+          print(f"raw-sdist-b {raw_sdist_b.name} sha256={digest(raw_sdist_b)}")
+          raw_match = raw_sdist_a.read_bytes() == raw_sdist_b.read_bytes()
+          print(f"raw_sdist_bytes_match={str(raw_match).lower()}")
+          print(f"normalized-sdist {normalized_a.name} sha256={digest(normalized_a)}")
+          print(f"normalized sdist payloads and modes match ({len(payloads_a)} members)")
+          PY
