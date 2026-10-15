@@ -1,0 +1,120 @@
+name: Published Archive Preflight consumer smoke
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  consumer:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.14'
+      - name: Generate harmless archives
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          from zipfile import ZipFile
+
+          fixtures = Path("fixtures")
+          fixtures.mkdir()
+          with ZipFile(fixtures / "clean.zip", "w") as archive:
+              archive.writestr("readme.txt", "Generated consumer smoke fixture.\n")
+          with ZipFile(fixtures / "collision.zip", "w") as archive:
+              archive.writestr("Report.txt", "First harmless member.\n")
+              archive.writestr("report.TXT", "Second harmless member.\n")
+          PY
+      - name: Scan clean archive using default text format
+        id: clean
+        uses: blouirts123/archive-preflight@v0.3.0
+        with:
+          archives: fixtures/clean.zip
+          report-path: consumer-smoke.txt
+      - name: Verify clean text report
+        shell: bash
+        run: |
+          python - <<'PY'
+          import os
+          from pathlib import Path
+
+          serialized = Path("consumer-smoke.txt").read_text(encoding="utf-8")
+          assert "fixtures/clean.zip" in serialized
+          assert "PASS" in serialized
+          assert str(Path(os.environ["GITHUB_WORKSPACE"])) not in serialized
+          PY
+      - name: Write a finding report as JSON
+        id: json
+        continue-on-error: true
+        uses: blouirts123/archive-preflight@v0.3.0
+        with:
+          archives: fixtures/collision.zip
+          report-format: json
+          report-path: consumer-smoke.json
+      - name: Require JSON finding scan to fail
+        if: steps.json.outcome != 'failure'
+        shell: bash
+        run: exit 1
+      - name: Verify JSON report
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          path = Path("consumer-smoke.json")
+          serialized = path.read_text(encoding="utf-8")
+          document = json.loads(serialized)
+          assert document["schema_version"] == 1
+          assert document["kind"] == "batch"
+          assert document["ok"] is False
+          assert len(document["results"]) == 1
+          result = document["results"][0]
+          assert result["archive"] == "fixtures/collision.zip"
+          assert "portable-collision" in {
+              finding["code"] for finding in result["report"]["findings"]
+          }
+          assert str(Path(os.environ["GITHUB_WORKSPACE"])) not in serialized
+          PY
+      - name: Write a finding report as SARIF
+        id: sarif
+        continue-on-error: true
+        uses: blouirts123/archive-preflight@v0.3.0
+        with:
+          archives: fixtures/collision.zip
+          report-format: sarif
+          report-path: consumer-smoke.sarif
+      - name: Require SARIF finding scan to fail
+        if: steps.sarif.outcome != 'failure'
+        shell: bash
+        run: exit 1
+      - name: Verify SARIF report and relative artifact location
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          serialized = Path("consumer-smoke.sarif").read_text(encoding="utf-8")
+          document = json.loads(serialized)
+          run = document["runs"][0]
+          assert document["version"] == "2.1.0"
+          result = run["results"][0]
+          assert result["ruleId"] == "archive-preflight/portable-collision"
+          assert result["locations"][0]["physicalLocation"]["artifactLocation"]["uri"] == "fixtures/collision.zip"
+          invocation = run["invocations"][0]
+          assert invocation["executionSuccessful"] is True
+          assert invocation["exitCode"] == 1
+          assert str(Path(os.environ["GITHUB_WORKSPACE"])) not in serialized
+          assert "file://" not in serialized
+          PY
