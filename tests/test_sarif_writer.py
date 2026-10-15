@@ -182,7 +182,7 @@ class SarifWriterTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir) / "checkout"
             outside = Path(temp_dir) / "private-parent-marker" / "broken.zip"
-            raw_error = r"could not read ZIP archive: C:\Users\private\secret-token"
+            raw_error = r"could not read ZIP archive: C:\private\secret-token"
 
             document = build_sarif([(str(outside), None, raw_error)], root=root)
             run = document["runs"][0]
@@ -198,7 +198,7 @@ class SarifWriterTests(unittest.TestCase):
             self.assertNotIn(raw_error, encoded)
             self.assertNotIn("private-parent-marker", encoded)
             self.assertNotIn("secret-token", encoded)
-            self.assertNotIn("C:\\Users", encoded)
+            self.assertNotIn("C:\\private", encoded)
 
     @unittest.skipUnless(os.name == "nt", "Windows device namespace path behavior")
     def test_windows_device_archive_path_uses_its_basename(self) -> None:

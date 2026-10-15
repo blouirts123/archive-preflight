@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.3.0
 
 - Extend the interoperability corpus and generator with GNU tar 1.35 fixtures.
 - Add SARIF 2.1.0 CLI output, representing portability findings as warnings and

@@ -20,7 +20,7 @@ Install from source; registry publication is separate.
 Without a local checkout:
 
 ```sh
-python -m pip install "git+https://github.com/blouirts123/archive-preflight.git@v0.2.0"
+python -m pip install "git+https://github.com/blouirts123/archive-preflight.git@v0.3.0"
 ```
 
 ## Check multiple archives
@@ -84,9 +84,9 @@ these labels even for one path; one-input plain-text output remains compatible
 with the earlier CLI. Text output escapes terminal-control characters in paths,
 finding details, and errors.
 
-## SARIF output (pending release)
+## SARIF output
 
-The development branch adds SARIF 2.1.0 output for CI consumers:
+Emit SARIF 2.1.0 output for CI consumers:
 
 ```sh
 archive-preflight dist/one.zip dist/two.tar.gz --sarif
@@ -151,21 +151,15 @@ contains `schema_version` and `error` instead. See the
 For a pre-commit hook example and supported archive filename suffixes, see
 [Pre-commit integration](docs/pre-commit.md).
 
-## GitHub Actions (pending release)
+## GitHub Actions
 
-The repository adds a composite action that accepts newline-separated,
+The composite action accepts newline-separated,
 repository-relative archive glob patterns and emits text, JSON, or SARIF. After
-checking out the repository and creating the archives, its local action can be
-used like this:
-
-This example is for workflows in the Archive Preflight repository: `uses: ./`
-selects the checked-out repository's root action. In another repository, `./`
-refers to that repository; use a maintainer-selected published release
-reference only once one is available.
+checking out your repository and creating the archives, use the published action:
 
 ```yaml
 - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-- uses: ./
+- uses: blouirts123/archive-preflight@v0.3.0
   with:
     archives: |
       dist/*.zip

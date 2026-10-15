@@ -10,9 +10,8 @@ the project's [scope and limits](../README.md#scope-and-limits) and
 The runnable workflow in [examples/github-actions.yml](../examples/github-actions.yml)
 builds this project and checks the resulting wheel and source archive. It uses
 `uses: ./`, which selects the composite action from the checked-out repository.
-This source example does not invent a remote action tag; use a
-maintainer-selected release reference when consuming the action from another
-repository.
+When consuming the action from another repository, use
+`blouirts123/archive-preflight@v0.3.0` instead of `./`.
 
 ## Inputs
 
