@@ -16,6 +16,8 @@ from archive_preflight.core import inspect_archive
 
 FIXTURE_DIR = Path(__file__).parent / "fixtures" / "interop"
 MANIFEST_PATH = FIXTURE_DIR / "manifest.json"
+GNU_FIXTURE_DIR = FIXTURE_DIR / "gnu"
+GNU_MANIFEST_PATH = GNU_FIXTURE_DIR / "manifest.json"
 EXPECTED_MEMBERS = {
     "sample.tar.gz": {"README.txt": 50, "folder/notes.txt": 25},
     "sample.tar.xz": {"README.txt": 50, "folder/notes.txt": 25},
@@ -133,6 +135,64 @@ class InteroperabilityFixtureTests(unittest.TestCase):
                         )
                         owner_ids = zip_owner_ids(member.extra)
                         self.assertTrue(owner_ids is None or owner_ids == (0, 0))
+
+    def test_gnu_tar_fixture_is_safe_and_has_neutral_ustar_metadata(self) -> None:
+        manifest_text = GNU_MANIFEST_PATH.read_text(encoding="utf-8")
+        manifest = json.loads(manifest_text)
+        self.assertEqual(manifest["schema_version"], 1)
+        self.assertEqual(manifest["producer"], {"name": "GNU tar", "version": "1.35"})
+        self.assertNotRegex(manifest_text, r"(?i)([a-z]:[\\/]|/(?:users|home)/)")
+        self.assertNotRegex(manifest_text, r"[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}")
+
+        item = manifest["archives"][0]
+        self.assertEqual(item["path"], "sample.tar")
+        self.assertEqual(item["tar_format"], "ustar")
+        self.assertEqual(item["compression"], "none")
+        path = GNU_FIXTURE_DIR / item["path"]
+        data = path.read_bytes()
+        self.assertLessEqual(len(data), 4096)
+        self.assertEqual(len(data), item["size"])
+        self.assertEqual(hashlib.sha256(data).hexdigest(), item["sha256"])
+        self.assertEqual(data[257:263], b"ustar\x00")
+
+        expected_members = {
+            member["name"]: member["size"] for member in item["members"]
+        }
+        self.assertEqual(expected_members, {"README.txt": 50, "folder/notes.txt": 25})
+        report = inspect_archive(path)
+        self.assertTrue(report.ok, report.findings)
+        self.assertTrue(report.complete)
+        self.assertEqual(report.format, "tar")
+        self.assertEqual(report.member_count, len(expected_members))
+        self.assertEqual(report.total_size, sum(expected_members.values()))
+
+        normalization = manifest["normalization"]
+        self.assertEqual(
+            normalization,
+            {
+                "member_paths": "relative POSIX paths",
+                "uid": 0,
+                "gid": 0,
+                "uname": "archive",
+                "gname": "empty",
+                "file_mode_octal": "0666",
+                "mtime_utc": "2000-01-01T00:00:00Z",
+            },
+        )
+        with tarfile.open(path, mode="r:") as archive:
+            members = archive.getmembers()
+        self.assertEqual({member.name for member in members}, expected_members.keys())
+        for member in members:
+            self.assertTrue(member.isfile())
+            self.assertEqual(member.uid, normalization["uid"])
+            self.assertEqual(member.gid, normalization["gid"])
+            self.assertEqual(member.uname, normalization["uname"])
+            self.assertEqual(member.gname, normalization["gname"])
+            self.assertEqual(member.mtime, SOURCE_EPOCH)
+            self.assertEqual(
+                member.mode & 0o777, int(normalization["file_mode_octal"], 8)
+            )
+            self.assertEqual(member.pax_headers, {})
 
     def test_synthetic_reserved_windows_names_are_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

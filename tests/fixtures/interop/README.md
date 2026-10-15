@@ -12,3 +12,8 @@ archive members using relative POSIX paths, and fixes timestamps and TAR
 ownership to neutral values. It does not read user files or extract archives.
 The manifest checksums identify these checked-in binaries; compressed bytes can
 change when the producer or its compression libraries change.
+
+The `gnu/` directory contains a separate uncompressed USTAR fixture created by
+GNU tar 1.35. Regenerate it with `python tools/generate_interop_fixtures.py --producer gnu`;
+GNU tar is found on `PATH` or beside Git for Windows. Its manifest records the
+neutral numeric and named ownership fields used for the archive.

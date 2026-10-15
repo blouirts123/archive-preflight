@@ -1,13 +1,15 @@
 """Generate the checked-in, sanitized archive interoperability fixtures.
 
-Run this script from any working directory with Python 3.10+ and bsdtar
-(libarchive) on PATH. It writes only the fixture corpus beside this file.
-Archive members are supplied as relative paths from a temporary working
-directory, and TAR ownership and timestamps are fixed to neutral values.
+Run this script from any working directory with Python 3.10+. The default
+producer requires bsdtar (libarchive) on PATH; ``--producer gnu`` uses GNU tar
+on PATH or beside Git for Windows. It writes only the fixture corpus beside
+this file. Archive members are relative to a temporary working directory, and
+ownership and timestamps are fixed to neutral values.
 """
 
 from __future__ import annotations
 
+import argparse
 import hashlib
 import json
 import os
@@ -18,6 +20,7 @@ import tempfile
 from pathlib import Path
 
 FIXTURE_DIR = Path(__file__).resolve().parents[1] / "tests" / "fixtures" / "interop"
+GNU_FIXTURE_DIR = FIXTURE_DIR / "gnu"
 SOURCE_EPOCH = 946_684_800  # 2000-01-01T00:00:00Z
 TAR_MEMBERS = {
     "README.txt": b"Small synthetic archive interoperability fixture.\n",
@@ -116,7 +119,7 @@ def _run(executable: str, args: list[str], cwd: Path) -> None:
         ) from exc
 
 
-def generate() -> None:
+def generate_bsdtar() -> None:
     executable, producer = _bsdtar()
     FIXTURE_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -207,5 +210,139 @@ def generate() -> None:
     )
 
 
+def _gnu_tar() -> tuple[str, dict[str, str]]:
+    """Find GNU tar and return only version data from its own output."""
+
+    candidates = []
+    for name in ("gtar", "tar", "tar.exe"):
+        candidate = shutil.which(name)
+        if candidate is not None and candidate not in candidates:
+            candidates.append(candidate)
+
+    git_executable = shutil.which("git.exe") or shutil.which("git")
+    if git_executable is not None:
+        git_dir = Path(git_executable).resolve().parent
+        for root in (git_dir.parent, git_dir.parent.parent):
+            candidate = root / "usr" / "bin" / ("tar.exe" if os.name == "nt" else "tar")
+            if candidate.is_file() and str(candidate) not in candidates:
+                candidates.append(str(candidate))
+
+    for executable in candidates:
+        try:
+            result = subprocess.run(
+                [executable, "--version"],
+                check=True,
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+        except (OSError, subprocess.SubprocessError):
+            continue
+
+        version_text = (result.stdout + result.stderr).splitlines()
+        version_line = version_text[0] if version_text else ""
+        match = re.match(r"^tar \(GNU tar\)\s+(\S+)", version_line, re.I)
+        if match is not None:
+            return executable, {"name": "GNU tar", "version": match.group(1)}
+
+    raise SystemExit(
+        "fixture generation requires GNU tar on PATH or beside Git for Windows"
+    )
+
+
+def generate_gnu_tar() -> None:
+    executable, producer = _gnu_tar()
+    GNU_FIXTURE_DIR.mkdir(parents=True, exist_ok=True)
+
+    with tempfile.TemporaryDirectory(prefix="archive-preflight-gnu-interop-") as temp:
+        work = Path(temp)
+        source = work / "source"
+        source.mkdir()
+        for member, contents in TAR_MEMBERS.items():
+            path = source / Path(member)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(contents)
+            path.chmod(0o666)
+            os.utime(path, (SOURCE_EPOCH, SOURCE_EPOCH))
+
+        target = work / "sample.tar"
+        args = [
+            "--create",
+            "--file=../sample.tar",
+            "--format=ustar",
+            "--blocking-factor=1",
+            f"--mtime=@{SOURCE_EPOCH}",
+            "--owner=archive:0",
+            "--group=empty:0",
+            "--mode=0666",
+            *TAR_MEMBERS,
+        ]
+        try:
+            subprocess.run(
+                [executable, *args],
+                cwd=source,
+                check=True,
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+        except (OSError, subprocess.SubprocessError) as exc:
+            raise SystemExit("GNU tar could not create the requested fixture") from exc
+
+        data = target.read_bytes()
+        manifest = {
+            "schema_version": 1,
+            "description": "Small synthetic USTAR archive created by GNU tar.",
+            "producer": producer,
+            "normalization": {
+                "member_paths": "relative POSIX paths",
+                "uid": 0,
+                "gid": 0,
+                "uname": "archive",
+                "gname": "empty",
+                "file_mode_octal": "0666",
+                "mtime_utc": "2000-01-01T00:00:00Z",
+            },
+            "archives": [
+                {
+                    "path": "sample.tar",
+                    "format": "tar",
+                    "tar_format": "ustar",
+                    "compression": "none",
+                    "size": len(data),
+                    "sha256": hashlib.sha256(data).hexdigest(),
+                    "members": [
+                        {"name": name, "size": len(payload)}
+                        for name, payload in TAR_MEMBERS.items()
+                    ],
+                }
+            ],
+        }
+        (GNU_FIXTURE_DIR / "sample.tar").write_bytes(data)
+        (GNU_FIXTURE_DIR / "manifest.json").write_text(
+            json.dumps(manifest, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+
+    print(
+        f"Generated 1 sanitized interoperability fixture with GNU tar {producer['version']}."
+    )
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--producer",
+        choices=("bsdtar", "gnu", "all"),
+        default="bsdtar",
+        help="select the real archive writer to use (default: bsdtar)",
+    )
+    producer = parser.parse_args().producer
+    if producer in ("bsdtar", "all"):
+        generate_bsdtar()
+    if producer in ("gnu", "all"):
+        generate_gnu_tar()
+
+
 if __name__ == "__main__":
-    generate()
+    main()

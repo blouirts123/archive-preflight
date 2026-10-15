@@ -1,6 +1,7 @@
 * text=auto eol=lf
 *.zip -text
 *.whl -text
+*.tar -text
 *.gz -text
 *.xz -text
 *.png -text

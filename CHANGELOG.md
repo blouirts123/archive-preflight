@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Extend the interoperability corpus and generator with GNU tar 1.35 fixtures.
+
 ## 0.2.0
 
 - Recognize superscript Windows COM/LPT device names.
