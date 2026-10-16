@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Detect regular root members that conflict with child paths in ZIP and TAR
+  archives, while preserving explicit root directories.
+
 - Add an optional source-distribution normalizer and a manual two-build release
   audit workflow. Raw and normalized outputs are reported separately; see the
   [reproducible-build audit guide](docs/reproducible-builds.md).
