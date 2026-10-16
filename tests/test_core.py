@@ -312,6 +312,64 @@ class CoreArchiveTests(unittest.TestCase):
             with self.subTest(path=path.name):
                 self.assert_has_finding(path, "file-directory-conflict")
 
+    def test_root_file_conflicts_with_children_in_both_formats_and_orders(self) -> None:
+        cases = (
+            (
+                self.zip((".", b"x"), "child.txt", name="zip-root-first.zip"),
+                "child.txt",
+            ),
+            (self.zip("child.txt", (".", b"x"), name="zip-child-first.zip"), "."),
+            (
+                self.tar(
+                    (".", "file", b"x"),
+                    ("child.txt", "file", b"x"),
+                    name="tar-root-first.tar",
+                ),
+                "child.txt",
+            ),
+            (
+                self.tar(
+                    ("child.txt", "file", b"x"),
+                    (".", "file", b"x"),
+                    name="tar-child-first.tar",
+                ),
+                ".",
+            ),
+        )
+        for path, expected_conflicting_member in cases:
+            with self.subTest(path=path.name):
+                report = inspect_archive(path)
+                conflicts = [
+                    finding
+                    for finding in report.findings
+                    if finding.code == "file-directory-conflict"
+                ]
+                self.assertTrue(conflicts, report.findings)
+                self.assertIn(
+                    expected_conflicting_member,
+                    {finding.member for finding in conflicts},
+                )
+
+    def test_explicit_root_directory_can_have_children(self) -> None:
+        cases = (
+            self.zip("./", "child.txt", name="zip-root-directory.zip"),
+            self.zip("child.txt", "./", name="zip-child-root-directory.zip"),
+            self.tar(
+                (".", "dir"),
+                ("child.txt", "file", b"x"),
+                name="tar-root-directory.tar",
+            ),
+            self.tar(
+                ("child.txt", "file", b"x"),
+                (".", "dir"),
+                name="tar-child-root-directory.tar",
+            ),
+        )
+        for path in cases:
+            with self.subTest(path=path.name):
+                report = inspect_archive(path)
+                self.assertTrue(report.ok, report.findings)
+
     def test_zip_unix_links_and_special_types_are_flagged(self) -> None:
         symlink_path = self.zip(zip_unix_entry("link", 0o120000))
         self.assert_has_finding(symlink_path, "link-entry")
