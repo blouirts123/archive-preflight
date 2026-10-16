@@ -11,7 +11,7 @@ The runnable workflow in [examples/github-actions.yml](../examples/github-action
 builds this project and checks the resulting wheel and source archive. It uses
 `uses: ./`, which selects the composite action from the checked-out repository.
 When consuming the action from another repository, use
-`blouirts123/archive-preflight@v0.3.0` instead of `./`.
+`blouirts123/archive-preflight@v0.3.1` instead of `./`.
 
 ## Inputs
 

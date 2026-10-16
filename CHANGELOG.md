@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.3.1
+
 - Detect regular root members that conflict with child paths in ZIP and TAR
   archives, while preserving explicit root directories.
 
