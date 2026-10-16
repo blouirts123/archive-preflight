@@ -201,10 +201,10 @@ class _PathTracker:
         else:
             self._exact_paths[normalized] = name
 
-        if not normalized:
-            return
-
-        exact_parts = normalized.split("/")
+        # Keep members normalized to the archive root on the trie root. A
+        # regular file there can conflict with descendants, while an explicit
+        # root directory can safely contain them.
+        exact_parts = normalized.split("/") if normalized else []
         portable_parts = [
             unicodedata.normalize("NFC", part).casefold() for part in exact_parts
         ]
@@ -213,6 +213,12 @@ class _PathTracker:
         portable_node = self._portable_root
         portable_collision = False
         conflicting_ancestor: str | None = None
+
+        if exact_parts:
+            exact_node.has_descendant = True
+            exact_node.descendant_member = exact_node.descendant_member or name
+            portable_node.has_descendant = True
+            portable_node.descendant_member = portable_node.descendant_member or name
 
         for index, (part, portable_part) in enumerate(
             zip(exact_parts, portable_parts, strict=True)
