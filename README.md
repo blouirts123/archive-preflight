@@ -217,6 +217,9 @@ python -m unittest discover -s tests -v
 
 The optional source-distribution comparison helper and manual two-build audit
 are described in the [reproducible-build audit guide](docs/reproducible-builds.md).
+The proposed manual PyPI workflow and its required maintainer setup are
+documented in the [PyPI publishing guide](docs/pypi-publishing.md); registry
+publication has not been enabled.
 
 Tests build synthetic ZIP/TAR fixtures in temporary directories. CI tests
 supported Python versions on Linux and Windows. See [CONTRIBUTING.md](CONTRIBUTING.md)
