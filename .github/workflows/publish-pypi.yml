@@ -1,0 +1,186 @@
+name: Manually publish to PyPI
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Published stable release tag to publish, for example v0.3.1
+        required: true
+        type: string
+
+permissions: {}
+
+concurrency:
+  group: archive-preflight-pypi-publish
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    outputs:
+      artifact-name: ${{ steps.validate.outputs.artifact-name }}
+      version: ${{ steps.validate.outputs.version }}
+    steps:
+      - name: Check out the trusted workflow source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.workflow_sha }}
+          path: publisher-source
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.14'
+
+      - name: Validate the manual dispatch and release tag input
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+          WORKFLOW_REF: ${{ github.ref }}
+        run: >-
+          python publisher-source/tools/verify_pypi_release.py
+          --validate-input
+          --tag "$RELEASE_TAG"
+          --workflow-ref "$WORKFLOW_REF"
+
+      - name: Check out the exact release source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.tag }}
+          path: release-source
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Read the published GitHub release metadata
+        env:
+          GITHUB_API_URL: ${{ github.api_url }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: |
+          curl --fail --silent --show-error \
+            --header 'Accept: application/vnd.github+json' \
+            --header 'X-GitHub-Api-Version: 2022-11-28' \
+            "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/releases/tags/$RELEASE_TAG" \
+            --output "$RUNNER_TEMP/archive-preflight-release.json"
+
+      - name: Verify release, tag, source commit, and package version
+        id: validate
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+          WORKFLOW_REF: ${{ github.ref }}
+          RELEASE_JSON: ${{ runner.temp }}/archive-preflight-release.json
+        run: |
+          version="$(python publisher-source/tools/verify_pypi_release.py \
+            --tag "$RELEASE_TAG" \
+            --workflow-ref "$WORKFLOW_REF" \
+            --repository "$GITHUB_WORKSPACE/release-source" \
+            --github-release "$RELEASE_JSON")"
+          artifact_name="archive-preflight-${version}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "artifact-name=$artifact_name" >> "$GITHUB_OUTPUT"
+
+      - name: Install the tagged project and run its tests
+        working-directory: release-source
+        run: |
+          python -m pip install --disable-pip-version-check --no-input .
+          python -m unittest discover -s tests -v
+
+      - name: Build and validate distributions
+        working-directory: release-source
+        env:
+          EXPECTED_VERSION: ${{ steps.validate.outputs.version }}
+        run: |
+          python -m pip install --disable-pip-version-check --no-input \
+            build==1.6.1 setuptools==84.0.0 wheel==0.47.0 twine==7.0.0
+          python - <<'PY'
+          from pathlib import Path
+          import shutil
+
+          dist = Path("dist")
+          if dist.is_symlink() or dist.is_file():
+              dist.unlink()
+          elif dist.exists():
+              shutil.rmtree(dist)
+          dist.mkdir()
+          PY
+          python -m build --no-isolation --sdist --wheel --outdir dist
+          python -m twine check dist/*
+          python - "$EXPECTED_VERSION" <<'PY'
+          import email.parser
+          import tarfile
+          import zipfile
+          from pathlib import Path
+          import sys
+
+          version = sys.argv[1]
+          dist = Path("dist")
+          entries = list(dist.iterdir())
+          expected = {
+              f"archive_preflight-{version}.tar.gz",
+              f"archive_preflight-{version}-py3-none-any.whl",
+          }
+          if any(path.is_symlink() or not path.is_file() for path in entries):
+              raise SystemExit("Distribution directory must contain only regular files.")
+          if {path.name for path in entries} != expected:
+              raise SystemExit("Built distribution filenames do not match the release version.")
+
+          wheel_path = dist / f"archive_preflight-{version}-py3-none-any.whl"
+          with zipfile.ZipFile(wheel_path) as archive:
+              metadata_files = [
+                  name for name in archive.namelist() if name.endswith(".dist-info/METADATA")
+              ]
+              if len(metadata_files) != 1:
+                  raise SystemExit("Wheel must contain exactly one METADATA file.")
+              wheel_metadata = email.parser.BytesParser().parsebytes(
+                  archive.read(metadata_files[0])
+              )
+
+          sdist_path = dist / f"archive_preflight-{version}.tar.gz"
+          with tarfile.open(sdist_path, "r:gz") as archive:
+              metadata_name = f"archive_preflight-{version}/PKG-INFO"
+              package_metadata = [
+                  member
+                  for member in archive.getmembers()
+                  if member.name == metadata_name
+              ]
+              if len(package_metadata) != 1 or not package_metadata[0].isfile():
+                  raise SystemExit("Source distribution must contain one top-level PKG-INFO file.")
+              stream = archive.extractfile(package_metadata[0])
+              if stream is None:
+                  raise SystemExit("Could not read source distribution metadata.")
+              sdist_metadata = email.parser.BytesParser().parse(stream)
+
+          for metadata in (wheel_metadata, sdist_metadata):
+              if metadata.get("Name") != "archive-preflight" or metadata.get("Version") != version:
+                  raise SystemExit("Built distribution metadata does not match the release.")
+          PY
+
+      - name: Pass the exact distributions to the publish job
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
+        with:
+          name: ${{ steps.validate.outputs.artifact-name }}
+          path: release-source/dist/*
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment:
+      name: pypi
+      url: https://pypi.org/project/archive-preflight/${{ needs.build.outputs.version }}/
+    permissions:
+      id-token: write
+    steps:
+      - name: Download the already-validated distributions
+        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5.0.0
+        with:
+          name: ${{ needs.build.outputs.artifact-name }}
+          path: dist
+
+      - name: Publish distributions to PyPI
+        uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # v1.14.2
