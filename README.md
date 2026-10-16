@@ -114,7 +114,7 @@ SARIF output does not turn this metadata lint into a security analysis. See the
 | `parent-traversal` | A `..` path component with either separator |
 | `backslash-path` | Backslashes interpreted differently across platforms |
 | `control-character` | C0 control characters or DEL in names |
-| `windows-name` | Reserved Windows names, forbidden characters, trailing dot/space |
+| `windows-name` | Reserved names, forbidden characters, trailing dot/space, or components over 255 UTF-16 code units |
 | `duplicate-path` | Repeated normalized member path |
 | `portable-collision` | Names that collide after Unicode NFC normalization and case folding |
 | `file-directory-conflict` | A file also needed as a directory |
@@ -127,6 +127,9 @@ SARIF output does not turn this metadata lint into a security analysis. See the
 
 Safe nested files, explicit directories, and leading `./` prefixes are accepted.
 All findings fail the check; some, such as links, may be intentional in your project.
+Windows component length uses a 255 UTF-16 code-unit limit for each raw path
+component; total path length is not checked because it depends on the destination
+filesystem and Windows long-path configuration.
 Unicode path override fields in ZIP archives are flagged conservatively because
 extractors may choose a different path. Nonzero content following the first TAR
 end marker is flagged rather than treated as an inspected second archive.

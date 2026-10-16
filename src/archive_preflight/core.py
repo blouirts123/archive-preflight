@@ -170,6 +170,14 @@ class _PathTracker:
         for component in components:
             if not component or component in (".", ".."):
                 continue
+            component_length = sum(2 if ord(char) > 0xFFFF else 1 for char in component)
+            if component_length > 255:
+                self._add(
+                    "windows-name",
+                    name,
+                    "member path component exceeds the Windows limit of 255 UTF-16 code units",
+                )
+                break
             if any(char in _WINDOWS_FORBIDDEN for char in component):
                 self._add(
                     "windows-name",
