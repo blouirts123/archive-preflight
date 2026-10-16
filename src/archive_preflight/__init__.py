@@ -3,4 +3,4 @@
 from .core import ArchiveError, Finding, Report, inspect_archive
 
 __all__ = ["ArchiveError", "Finding", "Report", "inspect_archive"]
-__version__ = "0.3.0"
+__version__ = "0.3.1"

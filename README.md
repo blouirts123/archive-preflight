@@ -20,7 +20,7 @@ Install from source; registry publication is separate.
 Without a local checkout:
 
 ```sh
-python -m pip install "git+https://github.com/blouirts123/archive-preflight.git@v0.3.0"
+python -m pip install "git+https://github.com/blouirts123/archive-preflight.git@v0.3.1"
 ```
 
 ## Check multiple archives
@@ -159,7 +159,7 @@ checking out your repository and creating the archives, use the published action
 
 ```yaml
 - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-- uses: blouirts123/archive-preflight@v0.3.0
+- uses: blouirts123/archive-preflight@v0.3.1
   with:
     archives: |
       dist/*.zip
