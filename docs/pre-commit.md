@@ -11,12 +11,12 @@ Add this entry to your repository's `.pre-commit-config.yaml`:
 ```yaml
 repos:
   - repo: https://github.com/blouirts123/archive-preflight
-    rev: v0.3.0
+    rev: v0.3.1
     hooks:
       - id: archive-preflight
 ```
 
-The `v0.3.0` tag pins the hook version. The hook uses Python and accepts regular
+The `v0.3.1` tag pins the hook version. The hook uses Python and accepts regular
 files whose names end, case-insensitively, in one of these supported suffixes:
 
 - ZIP archives and Python wheels: `.zip`, `.whl`
